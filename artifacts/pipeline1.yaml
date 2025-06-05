@@ -326,7 +326,7 @@ spec:
           value: >-
             set -o xtrace
 
-            REPO_SIGNATURE="JGR-20250513-001"
+            REPO_SIGNATURE="JGR-20250605-001"
 
             echo "Setting up workspace for pipeline"
 
@@ -1897,30 +1897,30 @@ spec:
 
                 "16.1.0")
             
-                    MQ_VERSION='9.4.0.11-r1'
+                    MQ_VERSION='9.4.0.11-r2'
             
                     ;;
             
                 "16.1.1")
             
-                    MQ_VERSION='9.4.2.1-r1'
+                    MQ_VERSION='9.4.2.1-r2'
             
             esac
 
-            (echo "cat <<EOF" ; cat instances/$(params.CP4I_VERSION)/12-qmgr-native-ha-instance.yaml ;) | \
+            (echo "cat <<EOF" ; cat instances/$(params.CP4I_VERSION)/33-qmgr-single-instance.yaml ;) | \
                 MQ_VERSION=${MQ_VERSION} \
                 OCP_BLOCK_STORAGE=$(params.OCP_BLOCK_STORAGE) \
-                sh > qmgr-native-ha-instance.yaml
+                sh > qmgr-single-instance.yaml
 
             echo "Deploying queue manager instance"
 
-            oc apply -f qmgr-native-ha-instance.yaml -n
+            oc apply -f qmgr-single-instance.yaml -n
             $(params.CP4I_NAMESPACE)
 
             echo "Waiting for queue manager instance to be ready..."
 
             while ! oc wait --for=jsonpath='{.status.phase}'=Running
-            queuemanager/qmgr-native-ha -n
+            queuemanager/mq-demo -n
             $(params.CP4I_NAMESPACE)  2>/dev/null; do sleep 30; done
 
             echo "Queue manager instance is ready"
