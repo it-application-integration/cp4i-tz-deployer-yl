@@ -11,7 +11,7 @@ spec:
       params:
         - name: SCRIPT
           value: >-
-            cd workspace
+            cd workspace/cp4i-ws/cp4i-deployer-helper
 
             oc delete configmap/pipeline-cp4i-config-output -n default --ignore-not-found=true 
             
@@ -22,6 +22,8 @@ spec:
             oc delete configmap/pipeline-dp-gtwy-demo-output -n default --ignore-not-found=true 
 
             oc delete configmap/pipeline-qmgr-demo-output -n default --ignore-not-found=true 
+
+            oc delete configmap/pipeline-qmgr-crr-output -n default --ignore-not-found=true 
 
             if [[ "$(tasks.setup-workspace.results.output)" == "true" ]]; then
                 if [[ "$(tasks.check-cp4i-version.results.output)" == "16.1.0" ]] || 
@@ -198,6 +200,9 @@ spec:
                                 oc extract secret/qmgr-demo-tls-secret -n $(params.CP4I_NAMESPACE) --keys=tls.key 
                                 openssl pkcs12 -export -in tls.crt -inkey tls.key -out qmgr-server-tls.p12 -name "qmgr server pkcs12" -passout pass:password
                                 keytool -importkeystore -srckeystore qmgr-server-tls.p12 -srcstoretype PKCS12 -srcstorepass password -destkeystore mqexplorerts.jks -deststoretype JKS -deststorepass password
+                                rm -f tls.crt
+                                rm -f tls.key
+                                rm -f qmgr-server-tls.p12
                                 QMGR_HOST_NAME=$(oc get route qmgr-demo-ibm-mq-qm -n $(params.CP4I_NAMESPACE) -o jsonpath='{.status.ingress[0].host}')
                                 echo "----------------------------"
                                 echo "Queue Manager info to connect from MQ Explorer..."
@@ -223,6 +228,48 @@ spec:
                                 echo "----------------------------"
                                 oc create configmap pipeline-qmgr-demo-output -n default \
                                   --from-literal=msg="Pipeline CP4I Config run completed, but MQ Explorer JKS certificate was not configured because Queue Manager Demo instance is not available."
+                            fi
+                            if [[ ! -z "$(oc get queuemanager exampleqm -n $(params.MQ_NHACRR_DC1) --no-headers --ignore-not-found)" ]] &&
+                               [[ ! -z "$(oc get queuemanager exampleqm -n $(params.MQ_NHACRR_DC2) --no-headers --ignore-not-found)" ]]; then
+                                QMGR_NAME='exampleqm'
+                                QMGR_INT_NAME='EXAMPLEQM'
+                                QMGR_CHANNEL_BASE="MTLS.SVRCONN."
+                                QMGR_DCS=($(params.MQ_NHACRR_DC1) $(params.MQ_NHACRR_DC2))
+                                for DC in "${QMGR_DCS[@]}"
+                                do
+                                    QMGR_HOST=$(oc get route ${QMGR_NAME}-ibm-mq-qm -n $DC -o jsonpath="{.spec.host}")
+                                    QMGR_DC_NAME=$(echo $DC | tr '[:lower:]' '[:upper:]')
+                                    QMGR_CHANNEL=${QMGR_CHANNEL_BASE}${QMGR_DC_NAME}
+                                    QMGR_CERT_LABEL="nhacrr-$DC-app"
+                                    oc extract secret/nhacrr-$DC-app-tls -n $DC --keys=ca.crt
+                                    oc extract secret/nhacrr-$DC-app-tls -n $DC --keys=tls.crt
+                                    oc extract secret/nhacrr-$DC-app-tls -n $DC --keys=tls.key
+                                    openssl pkcs12 -export -in tls.crt -inkey tls.key -certfile ca.crt -out qmgr-server-tls-${DC}.p12 -name "nhacrr-${DC}-app" -passout pass:password
+                                    rm -f ca.crt
+                                    rm -f tls.crt
+                                    rm -f tls.key
+                                done
+                                echo "----------------------------"
+                                echo "Info to demo MQ NativeHA CRR..."
+                                echo "   QMgr Name: EXAMPLEQM"
+                                echo "   Queue Name: EXAMPLE.QUEUE"
+                                echo "   Files included in ConfigMap:"
+                                echo "      CCDTs"
+                                echo "      mqclient.ini"
+                                echo "      P12 certificates"
+                                echo "----------------------------"
+                                oc create configmap pipeline-qmgr-crr-output -n default \
+                                  --from-literal=msg="Pipeline CP4I Config run completed" \
+                                  --from-literal=qmgr-name=EXAMPLEQM \
+                                  --from-literal=queue-name=EXAMPLE.QUEUE \
+                                  --from-file=qmgr-server-tls-$(params.MQ_NHACRR_DC1).p12 \
+                                  --from-file=qmgr-server-tls-$(params.MQ_NHACRR_DC2).p12
+                            else
+                                echo "----------------------------"
+                                echo "MQ CRR assets were not installed because Queue Manager instance was not deployed."
+                                echo "----------------------------"
+                                oc create configmap pipeline-qmgr-crr-output -n default \
+                                  --from-literal=msg="Pipeline CP4I Config run completed, but MQ CCDT and MQClient.ini files were not configured because Queue Manager instance with CRR configuration is not available."
                             fi
                         else
                             echo "----------------------------"
@@ -268,6 +315,8 @@ spec:
       taskRef:
         kind: Task
         name: jgr-task-0.2
+      workspaces:
+        - name: cp4i-ws
   params:
     - name: CP4I_NAMESPACE
       default: tools
@@ -391,7 +440,7 @@ spec:
           value: >-
             set -o xtrace
 
-            REPO_SIGNATURE="JGR-20250605-001"
+            REPO_SIGNATURE="JGR-20250606-001"
 
             echo "Setting up workspace for pipeline"
             
@@ -2052,6 +2101,8 @@ spec:
 
             QMGR_DCS=($(params.MQ_NHACRR_DC1) $(params.MQ_NHACRR_DC2))
             
+            QMGR_CHANNEL="MTLS.SVRCONN."
+
             for DC in "${QMGR_DCS[@]}"
             
             do
@@ -2100,6 +2151,26 @@ spec:
                     rm -f mq-certificate.yaml
                 
                 done
+
+                echo "Preparing Route Template..."
+
+                MQ_CHANNEL_SNI=$(echo $QMGR_CHANNEL | tr '[:upper:]' '[:lower:]')
+
+                HOST_NAME="${MQ_CHANNEL_SNI//./2e-}${DC}.chl.mq.ibm.com"
+
+                ( echo "cat <<EOF" ; cat templates/template-mq-tls-route.yaml ;) | \
+                    QMGR_NAME=${QMGR_NAME} \
+                    QMGR_NAMESPACE=${DC} \
+                    HOST_NAME=${HOST_NAME} \
+                    sh > mq-tls-route.yaml
+
+                echo "Creating Route..."
+
+                oc create -f mq-tls-route.yaml
+    
+                echo "Cleaning up temp file..."
+    
+                rm -f mq-tls-route.yaml                
 
             done
 
