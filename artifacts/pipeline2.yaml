@@ -241,10 +241,19 @@ spec:
                                     QMGR_DC_NAME=$(echo $DC | tr '[:lower:]' '[:upper:]')
                                     QMGR_CHANNEL=${QMGR_CHANNEL_BASE}${QMGR_DC_NAME}
                                     QMGR_CERT_LABEL="nhacrr-$DC-app"
+            ( echo "cat <<EOF" ; cat templates/template-mq-crr-ccdt.json ;) | \
+                QMGR_CHANNEL=${QMGR_CHANNEL} \
+                QMGR_HOST=${QMGR_HOST} \
+                QMGR_INT_NAME=${QMGR_INT_NAME} \
+                QMGR_CERT_LABEL=${QMGR_CERT_LABEL} \
+                sh > mqcrrccdt-$DC.json
                                     oc extract secret/nhacrr-$DC-app-tls -n $DC --keys=ca.crt
                                     oc extract secret/nhacrr-$DC-app-tls -n $DC --keys=tls.crt
                                     oc extract secret/nhacrr-$DC-app-tls -n $DC --keys=tls.key
                                     openssl pkcs12 -export -in tls.crt -inkey tls.key -certfile ca.crt -out qmgr-server-tls-${DC}.p12 -name "nhacrr-${DC}-app" -passout pass:password
+            ( echo "cat <<EOF" ; cat templates/template-mq-crr-mqclient.ini ;) | \
+                QMGR_DC_NAME=${DC}${QMGR_DC} \
+                sh > mqclient-$DC.ini
                                     rm -f ca.crt
                                     rm -f tls.crt
                                     rm -f tls.key
@@ -262,7 +271,11 @@ spec:
                                   --from-literal=msg="Pipeline CP4I Config run completed" \
                                   --from-literal=qmgr-name=EXAMPLEQM \
                                   --from-literal=queue-name=EXAMPLE.QUEUE \
+                                  --from-file=mqcrrccdt-$(params.MQ_NHACRR_DC1).json \
+                                  --from-file=mqclient-$(params.MQ_NHACRR_DC1).ini \
                                   --from-file=qmgr-server-tls-$(params.MQ_NHACRR_DC1).p12 \
+                                  --from-file=mqcrrccdt-$(params.MQ_NHACRR_DC2).json \
+                                  --from-file=mqclient-$(params.MQ_NHACRR_DC2).ini \
                                   --from-file=qmgr-server-tls-$(params.MQ_NHACRR_DC2).p12
                             else
                                 echo "----------------------------"
@@ -277,6 +290,11 @@ spec:
                             echo "----------------------------"
                             oc create configmap pipeline-qmgr-demo-output -n default \
                               --from-literal=msg="Pipeline CP4I Config run completed, but Queue Manager Demo instance was not configured because Operator is not available."
+                            echo "----------------------------"
+                            echo "MQ CRR assets were not installed because the corresponding Operator is not installed."
+                            echo "----------------------------"
+                            oc create configmap pipeline-qmgr-crr-output -n default \
+                              --from-literal=msg="Pipeline CP4I Config run completed, but MQ CCDT and MQClient.ini files were not configured because Queue Manager instance with CRR configuration is not available."
                         fi
                     else
                         echo "----------------------------"
@@ -284,6 +302,11 @@ spec:
                         echo "----------------------------"
                         oc create configmap pipeline-qmgr-demo-output -n default \
                           --from-literal=msg="Pipeline CP4I Config run completed, but Queue Manager Demo instance was not installed per user request."
+                        echo "----------------------------"
+                        echo "MQ CRR assets were not installed per user request."
+                        echo "----------------------------"
+                        oc create configmap pipeline-qmgr-crr-output -n default \
+                          --from-literal=msg="Pipeline CP4I Config run completed, but MQ CCDT and MQClient.ini files were not configured because Queue Manager instance with CRR configuration is not available."
                     fi
                 else
                     if [[ "$(tasks.check-cp4i-version.results.output)" == "0.0.0" ]]; then
