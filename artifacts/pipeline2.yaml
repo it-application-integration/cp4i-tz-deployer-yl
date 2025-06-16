@@ -469,7 +469,7 @@ spec:
             
             cd workspace/cp4i-ws
             
-            git clone --single-branch --branch dev https://github.com/gomezrjo/cp4i-deployer-helper.git
+            git clone --single-branch --branch dev https://github.com/it-application-integration/cp4i-deployer-helper.git
 
             echo "Checking helper repo."
 
@@ -511,7 +511,7 @@ spec:
 
             chmod +x apic
 
-            git clone --single-branch --branch dev https://github.com/gomezrjo/cp4i-ace-artifacts.git
+            git clone --single-branch --branch dev https://github.com/it-application-integration/cp4i-deployer-helper.git
 
             echo "Workspace for pipeline is ready"
         - name: VERSION
